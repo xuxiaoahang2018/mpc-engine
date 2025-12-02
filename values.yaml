@@ -1,9 +1,6 @@
 # 默认配置值
 global:
-  # 镜像仓库地址
-  imageRegistry: "registry.example.com/mpc/"
-  imagePullPolicy: IfNotPresent
-  
+
   # 亲和性配置
   affinityEnabled: false
   affinity:
@@ -27,10 +24,7 @@ company:
   name: company
   replicaCount: 1
   
-  image:
-    repository: mobile-mpc-project
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
+  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.5"
   
   # SPU 地址配置 (address - 用于其他节点连接)
   spuAddr: "mpc-test-mobile-mpc-project-company-svc:9394"  # Company Service 名称
@@ -92,10 +86,7 @@ partner:
   name: partner
   replicaCount: 1
   
-  image:
-    repository: mobile-mpc-project
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
+  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.5"
   
   # SPU 地址配置
   spuAddr: "0.0.0.0:9395"
@@ -154,10 +145,7 @@ coordinator:
   name: coordinator
   replicaCount: 1
   
-  image:
-    repository: mobile-mpc-project
-    tag: "v1.0.0"
-    pullPolicy: IfNotPresent
+  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.5"
   
   spuAddr: "0.0.0.0:9396"
   

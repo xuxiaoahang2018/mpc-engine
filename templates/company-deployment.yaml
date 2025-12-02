@@ -42,8 +42,7 @@ spec:
       - name: company
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
-        image: {{ include "mobile-mpc.image" (dict "image" .Values.company.image "Chart" .Chart "Values" .Values) }}
-        imagePullPolicy: {{ .Values.company.image.pullPolicy }}
+        image: {{ .Values.coordinator.image }}
         command: ["/bin/bash", "-c"]
         args:
           - |
