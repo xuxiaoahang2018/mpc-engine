@@ -44,6 +44,31 @@ spec:
           {{- toYaml .Values.securityContext | nindent 10 }}
         image: {{ include "mobile-mpc.image" (dict "image" .Values.webui.image "Chart" .Chart "Values" .Values) }}
         imagePullPolicy: {{ .Values.webui.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        workingDir: /app
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "🚀 启动 Web UI..."
+            
+            # 清理旧的日志文件
+            echo "🧹 清理旧的日志文件..."
+            rm -f /app/company/company_run.log
+            rm -f /app/partner/partner_run.log
+            echo "✅ 日志文件已清理"
+            
+            cd /app/web_ui
+            # 使用环境变量或直接修改端口为 8080
+            export FLASK_RUN_PORT={{ .Values.webui.service.targetPort }}
+            exec python3 -c "
+            import sys
+            sys.path.insert(0, '/app')
+            from web_ui.app import app, socketio
+            import os
+            os.makedirs('/app/web_ui/templates', exist_ok=True)
+            os.makedirs('/app/web_ui/static', exist_ok=True)
+            print('✅ Web UI 服务启动在端口 {{ .Values.webui.service.targetPort }}')
+            socketio.run(app, host='0.0.0.0', port={{ .Values.webui.service.targetPort }}, debug=False, allow_unsafe_werkzeug=True)
+            "
         ports:
         - name: http
           containerPort: {{ .Values.webui.service.targetPort }}
