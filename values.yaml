@@ -186,6 +186,52 @@ webui:
       cpu: "0.2"
       memory: 512Mi
   
+    # 环境变量
+  env: []
+  # - name: API_URL
+  #   value: "http://api.example.com"
+  
+  # 健康检查探针（端口会自动使用 service.targetPort）
+  livenessProbe:
+    httpGet:
+      path: /
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # 卷挂载
+  volumeMounts: []
+  # - name: config
+  #   mountPath: /app/config
+  
+  # 卷
+  volumes: []
+  # - name: config
+  #   configMap:
+  #     name: webui-config
+  
+  # 额外的标签和注解
+  extraLabels: {}
+  extraAnnotations: {}
+  
+  # 节点选择器
+  nodeSelector: {}
+  
+  # 亲和性
+  affinity: {}
+  
+  # 容忍度
+  tolerations: []
+  
   # Ingress 配置
   ingress:
     enabled: false
