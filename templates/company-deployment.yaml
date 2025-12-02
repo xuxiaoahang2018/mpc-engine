@@ -1,0 +1,219 @@
+{{- if .Values.company.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mobile-mpc.fullname" . }}-company
+  labels:
+    {{- include "mobile-mpc.company.labels" . | nindent 4 }}
+    {{- with .Values.company.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.company.extraAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.company.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mobile-mpc.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: company
+  template:
+    metadata:
+      labels:
+        {{- include "mobile-mpc.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: company
+        {{- with .Values.company.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.company.extraAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mobile-mpc.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: company
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        image: {{ include "mobile-mpc.image" (dict "image" .Values.company.image "Chart" .Chart "Values" .Values) }}
+        imagePullPolicy: {{ .Values.company.image.pullPolicy }}
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "🚀 启动 Company 节点..."
+            
+            # 获取 Pod IP
+            export POD_IP=$(hostname -i)
+            echo "📍 Pod IP: $POD_IP"
+            
+            # 使用 Python API 启动 Ray Head 并获取实际端口
+            echo "📍 使用 Python API 启动 Ray Head..."
+            python3 -c 'import ray,sys,time,os; pod_ip=os.environ.get("POD_IP","127.0.0.1"); print("Ray binding to",pod_ip); ray.init(num_cpus=8,resources={"company":10,"coordinator":10},object_store_memory=2000000000,include_dashboard=False,_node_ip_address=pod_ip,ignore_reinit_error=True); gcs_addr=ray.get_runtime_context().gcs_address; print("Ray GCS address:",gcs_addr); open("/tmp/ray_gcs_addr.txt","w").write(gcs_addr); [time.sleep(60) for _ in iter(int,1)]' &
+            
+            RAY_PID=$!
+            echo "Ray Head 后台进程 PID: $RAY_PID"
+            
+            # 等待 Ray 完全启动并写入地址文件
+            echo "⏳ 等待 Ray Head 准备就绪..."
+            sleep 10
+            
+            # 读取实际的 GCS 地址并更新 ConfigMap
+            if [ -f /tmp/ray_gcs_addr.txt ]; then
+              GCS_ADDR=$(cat /tmp/ray_gcs_addr.txt)
+              GCS_HOST=$(echo $GCS_ADDR | cut -d: -f1)
+              GCS_PORT=$(echo $GCS_ADDR | cut -d: -f2)
+              echo "📍 实际 GCS 地址: $GCS_ADDR"
+              echo "📍 更新 ConfigMap: gcs-port=$GCS_PORT"
+              
+              # 安装 kubectl（如果不存在）
+              if ! command -v kubectl &> /dev/null; then
+                echo "安装 kubectl..."
+                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                chmod +x kubectl
+                mv kubectl /usr/local/bin/
+              fi
+              
+              # 更新 ConfigMap
+              kubectl patch configmap {{ include "mobile-mpc.fullname" . }}-ray-config \
+                -n {{ .Release.Namespace }} \
+                --type merge \
+                -p "{\"data\":{\"gcs-port\":\"$GCS_PORT\",\"gcs-host\":\"$POD_IP\"}}"
+              
+              echo "✅ ConfigMap 更新成功"
+            else
+              echo "⚠️  未找到 Ray GCS 地址文件"
+            fi
+            
+            # 运行 Company 程序（使用实际的 GCS 地址）
+            echo "🎯 启动 Company MPC 节点..."
+            
+            # 解析 Partner Service 的 Pod IP
+            echo "🔍 解析 Partner Service 地址..."
+            PARTNER_SERVICE_NAME="{{ include "mobile-mpc.fullname" . }}-partner-svc"
+            PARTNER_IP=$(getent hosts $PARTNER_SERVICE_NAME | awk '{ print $1 }' | head -1)
+            if [ -z "$PARTNER_IP" ]; then
+              echo "⚠️  无法解析 Partner Service，使用 Service 名称"
+              PARTNER_SPU_ADDR="{{ .Values.company.partnerSpuAddr }}"
+            else
+              echo "✅ Partner IP: $PARTNER_IP"
+              PARTNER_SPU_ADDR="$PARTNER_IP:{{ .Values.partner.service.ports.spu }}"
+            fi
+            
+            if [ -f /tmp/ray_gcs_addr.txt ]; then
+              RAY_GCS_ADDR=$(cat /tmp/ray_gcs_addr.txt)
+              echo "使用 Ray GCS 地址: $RAY_GCS_ADDR"
+              exec python company/truerun.py \
+                --mode multi_distributed \
+                --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
+                --partner_spu_addr $PARTNER_SPU_ADDR \
+                --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
+                --ray_head_addr $RAY_GCS_ADDR \
+                --run_psi True \
+                --path_to_company_train_dataset /app/company/host_train.csv \
+                --path_to_company_val_dataset /app/company/host_test.csv \
+                --path_to_company_share /app/company/company_share.csv \
+                --path_to_company_model_save_dir /app/company/models/lr_company \
+                --share_y False \
+                --path_to_partner_train_dataset /app/partner/guest_train.csv \
+                --path_to_partner_val_dataset /app/partner/guest_test.csv \
+                --path_to_partner_share /app/partner/partner_share.csv \
+                --path_to_partner_model_save_dir /app/partner/models/lr_partner \
+                --model SSLR \
+                --n_epochs 10 \
+                --batch_size 1000 \
+                --val_steps 1 \
+                --lr 0.1
+            else
+              echo "⚠️  未找到 Ray GCS 地址，使用默认"
+              exec python company/truerun.py \
+                --mode multi_distributed \
+                --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
+                --partner_spu_addr $PARTNER_SPU_ADDR \
+                --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
+                --ray_head_addr $POD_IP:{{ .Values.company.service.ports.ray }} \
+                --run_psi True \
+                --path_to_company_train_dataset /app/company/host_train.csv \
+                --path_to_company_val_dataset /app/company/host_test.csv \
+                --path_to_company_share /app/company/company_share.csv \
+                --path_to_company_model_save_dir /app/company/models/lr_company \
+                --share_y False \
+                --path_to_partner_train_dataset /app/partner/guest_train.csv \
+                --path_to_partner_val_dataset /app/partner/guest_test.csv \
+                --path_to_partner_share /app/partner/partner_share.csv \
+                --path_to_partner_model_save_dir /app/partner/models/lr_partner \
+                --model SSLR \
+                --n_epochs 10 \
+                --batch_size 1000 \
+                --val_steps 1 \
+                --lr 0.1
+            fi
+        ports:
+        - name: spu
+          containerPort: {{ .Values.company.service.ports.spu }}
+          protocol: TCP
+        - name: coordinator
+          containerPort: 9396
+          protocol: TCP
+        - name: ray
+          containerPort: {{ .Values.company.service.ports.ray }}
+          protocol: TCP
+        - name: webui
+          containerPort: {{ .Values.company.service.ports.webui }}
+          protocol: TCP
+        env:
+        {{- include "mobile-mpc.commonEnv" . | nindent 8 }}
+        {{- with .Values.company.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: models
+          mountPath: /app/company/models
+        - name: logs
+          mountPath: /app/logs
+        - name: dshm
+          mountPath: /dev/shm
+        {{- if .Values.global.resourcesEnabled }}
+        resources:
+          {{- toYaml .Values.company.resources | nindent 10 }}
+        {{- end }}
+      volumes:
+      {{- include "mobile-mpc.volumes" .Values.company | nindent 6 }}
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+      {{- with .Values.company.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.global.affinityEnabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: {{ .Values.global.affinity.key }}
+                operator: In
+                values:
+                {{- toYaml .Values.global.affinity.values | nindent 16 }}
+      {{- else }}
+        {{- with .Values.company.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.company.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

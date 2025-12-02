@@ -1,0 +1,140 @@
+{{- if .Values.partner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mobile-mpc.fullname" . }}-partner
+  labels:
+    {{- include "mobile-mpc.partner.labels" . | nindent 4 }}
+    {{- with .Values.partner.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.partner.extraAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.partner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mobile-mpc.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: partner
+  template:
+    metadata:
+      labels:
+        {{- include "mobile-mpc.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: partner
+        {{- with .Values.partner.extraLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.partner.extraAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mobile-mpc.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: partner
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        image: {{ include "mobile-mpc.image" (dict "image" .Values.partner.image "Chart" .Chart "Values" .Values) }}
+        imagePullPolicy: {{ .Values.partner.image.pullPolicy }}
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "🚀 启动 Partner 节点..."
+            
+            # 安装 kubectl（如果不存在）
+            if ! command -v kubectl &> /dev/null; then
+              echo "安装 kubectl..."
+              curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" 2>/dev/null
+              chmod +x kubectl
+              mv kubectl /usr/local/bin/
+            fi
+            
+            # 从 ConfigMap 读取实际的 Ray GCS 地址
+            echo "📍 从 ConfigMap 读取 Ray GCS 地址..."
+            MAX_RETRIES=30
+            for i in $(seq 1 $MAX_RETRIES); do
+              GCS_HOST=$(kubectl get configmap {{ include "mobile-mpc.fullname" . }}-ray-config -n {{ .Release.Namespace }} -o jsonpath='{.data.gcs-host}' 2>/dev/null || echo "")
+              GCS_PORT=$(kubectl get configmap {{ include "mobile-mpc.fullname" . }}-ray-config -n {{ .Release.Namespace }} -o jsonpath='{.data.gcs-port}' 2>/dev/null || echo "6379")
+              
+              if [ ! -z "$GCS_HOST" ] && [ "$GCS_PORT" != "6379" ]; then
+                echo "✅ 获取到 Ray GCS 地址: $GCS_HOST:$GCS_PORT"
+                break
+              fi
+              
+              echo "⏳ 等待 Company 更新 ConfigMap... ($i/$MAX_RETRIES)"
+              sleep 2
+            done
+            
+            # 设置环境变量（Ray Worker 需要）
+            export JAX_PLATFORMS=cpu
+            export XLA_FLAGS="--xla_force_host_platform_device_count=1 --xla_cpu_multi_thread_eigen=false"
+            export OMP_NUM_THREADS=1
+            export RAY_BACKEND_LOG_LEVEL=info
+            
+            # 启动 Ray Worker 节点
+            echo "🎯 启动 Ray Worker 节点（Partner）..."
+            echo "📍 Ray Head 地址: $GCS_HOST:$GCS_PORT"
+            echo "📍 资源标签: partner=10"
+            echo "📍 CPU 数量: {{ .Values.partner.resources.requests.cpu | default 4 }}"
+            
+            exec ray start \
+              --address=$GCS_HOST:$GCS_PORT \
+              --resources='{"partner": 10}' \
+              --num-cpus={{ .Values.partner.resources.requests.cpu | default 4 }} \
+              --block
+        ports:
+        - name: spu
+          containerPort: {{ .Values.partner.service.ports.spu }}
+          protocol: TCP
+        env:
+        {{- include "mobile-mpc.commonEnv" . | nindent 8 }}
+        {{- with .Values.partner.env }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: models
+          mountPath: /app/partner/models
+        - name: logs
+          mountPath: /app/logs
+        {{- if .Values.global.resourcesEnabled }}
+        resources:
+          {{- toYaml .Values.partner.resources | nindent 10 }}
+        {{- end }}
+      volumes:
+      {{- include "mobile-mpc.volumes" .Values.partner | nindent 6 }}
+      {{- with .Values.partner.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.global.affinityEnabled }}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: {{ .Values.global.affinity.key }}
+                operator: In
+                values:
+                {{- toYaml .Values.global.affinity.values | nindent 16 }}
+      {{- else }}
+        {{- with .Values.partner.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.partner.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
