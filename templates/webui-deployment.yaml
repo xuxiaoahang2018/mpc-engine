@@ -42,8 +42,7 @@ spec:
       - name: webui
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
-        image: {{ include "mobile-mpc.image" (dict "image" .Values.webui.image "Chart" .Chart "Values" .Values) }}
-        imagePullPolicy: {{ .Values.webui.image.pullPolicy | default .Values.global.imagePullPolicy }}
+        image: {{ .Values.webui.image }}
         workingDir: /app
         command: ["/bin/bash", "-c"]
         args:
