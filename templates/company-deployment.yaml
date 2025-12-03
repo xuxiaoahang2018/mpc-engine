@@ -52,46 +52,29 @@ spec:
             export POD_IP=$(hostname -i)
             echo "📍 Pod IP: $POD_IP"
             
-            # 使用 Python API 启动 Ray Head 并获取实际端口
-            echo "📍 使用 Python API 启动 Ray Head..."
-            python3 -c 'import ray,sys,time,os; pod_ip=os.environ.get("POD_IP","127.0.0.1"); print("Ray binding to",pod_ip); ray.init(num_cpus=8,resources={"company":10,"coordinator":10},object_store_memory=2000000000,include_dashboard=False,_node_ip_address=pod_ip,ignore_reinit_error=True); gcs_addr=ray.get_runtime_context().gcs_address; print("Ray GCS address:",gcs_addr); open("/tmp/ray_gcs_addr.txt","w").write(gcs_addr); [time.sleep(60) for _ in iter(int,1)]' &
+            # 使用 Ray CLI 启动 Ray Head（指定端口 6379）
+            echo "📍 启动 Ray Head (端口: {{ .Values.company.service.ports.ray }})..."
+            ray start --head \
+              --port={{ .Values.company.service.ports.ray }} \
+              --num-cpus={{ .Values.company.resources.requests.cpu | default 8 }} \
+              --resources='{"company": 10, "coordinator": 10}' \
+              --object-store-memory=2000000000 \
+              --include-dashboard=false \
+              --node-ip-address=$POD_IP &
             
             RAY_PID=$!
             echo "Ray Head 后台进程 PID: $RAY_PID"
             
-            # 等待 Ray 完全启动并写入地址文件
+            # 等待 Ray Head 启动
             echo "⏳ 等待 Ray Head 准备就绪..."
-            sleep 10
+            sleep 5
             
-            # 读取实际的 GCS 地址并更新 ConfigMap
-            if [ -f /tmp/ray_gcs_addr.txt ]; then
-              GCS_ADDR=$(cat /tmp/ray_gcs_addr.txt)
-              GCS_HOST=$(echo $GCS_ADDR | cut -d: -f1)
-              GCS_PORT=$(echo $GCS_ADDR | cut -d: -f2)
-              echo "📍 实际 GCS 地址: $GCS_ADDR"
-              echo "📍 更新 ConfigMap: gcs-port=$GCS_PORT"
-              
-              # 安装 kubectl（如果不存在）
-              if ! command -v kubectl &> /dev/null; then
-                echo "安装 kubectl..."
-                curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                chmod +x kubectl
-                mv kubectl /usr/local/bin/
-              fi
-              
-              # 更新 ConfigMap
-              kubectl patch configmap {{ include "mobile-mpc.fullname" . }}-ray-config \
-                -n {{ .Release.Namespace }} \
-                --type merge \
-                -p "{\"data\":{\"gcs-port\":\"$GCS_PORT\",\"gcs-host\":\"$POD_IP\"}}"
-              
-              echo "✅ ConfigMap 更新成功"
+            # 验证 Ray Head 是否启动成功
+            if ! ray status &>/dev/null; then
+              echo "⚠️  Ray Head 启动检查失败，继续执行..."
             else
-              echo "⚠️  未找到 Ray GCS 地址文件"
+              echo "✅ Ray Head 已启动"
             fi
-            
-            # 运行 Company 程序（使用实际的 GCS 地址）
-            echo "🎯 启动 Company MPC 节点..."
             
             # 解析 Partner Service 的 Pod IP
             echo "🔍 解析 Partner Service 地址..."
@@ -105,54 +88,31 @@ spec:
               PARTNER_SPU_ADDR="$PARTNER_IP:{{ .Values.partner.service.ports.spu }}"
             fi
             
-            if [ -f /tmp/ray_gcs_addr.txt ]; then
-              RAY_GCS_ADDR=$(cat /tmp/ray_gcs_addr.txt)
-              echo "使用 Ray GCS 地址: $RAY_GCS_ADDR"
-              exec python company/truerun.py \
-                --mode multi_distributed \
-                --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
-                --partner_spu_addr $PARTNER_SPU_ADDR \
-                --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
-                --ray_head_addr $RAY_GCS_ADDR \
-                --run_psi True \
-                --path_to_company_train_dataset /app/company/host_train.csv \
-                --path_to_company_val_dataset /app/company/host_test.csv \
-                --path_to_company_share /app/company/company_share.csv \
-                --path_to_company_model_save_dir /app/company/models/lr_company \
-                --share_y False \
-                --path_to_partner_train_dataset /app/partner/guest_train.csv \
-                --path_to_partner_val_dataset /app/partner/guest_test.csv \
-                --path_to_partner_share /app/partner/partner_share.csv \
-                --path_to_partner_model_save_dir /app/partner/models/lr_partner \
-                --model SSLR \
-                --n_epochs 10 \
-                --batch_size 1000 \
-                --val_steps 1 \
-                --lr 0.1
-            else
-              echo "⚠️  未找到 Ray GCS 地址，使用默认"
-              exec python company/truerun.py \
-                --mode multi_distributed \
-                --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
-                --partner_spu_addr $PARTNER_SPU_ADDR \
-                --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
-                --ray_head_addr $POD_IP:{{ .Values.company.service.ports.ray }} \
-                --run_psi True \
-                --path_to_company_train_dataset /app/company/host_train.csv \
-                --path_to_company_val_dataset /app/company/host_test.csv \
-                --path_to_company_share /app/company/company_share.csv \
-                --path_to_company_model_save_dir /app/company/models/lr_company \
-                --share_y False \
-                --path_to_partner_train_dataset /app/partner/guest_train.csv \
-                --path_to_partner_val_dataset /app/partner/guest_test.csv \
-                --path_to_partner_share /app/partner/partner_share.csv \
-                --path_to_partner_model_save_dir /app/partner/models/lr_partner \
-                --model SSLR \
-                --n_epochs 10 \
-                --batch_size 1000 \
-                --val_steps 1 \
-                --lr 0.1
-            fi
+            # 运行 Company 程序
+            echo "🎯 启动 Company MPC 节点..."
+            echo "📍 Ray Head 地址: $POD_IP:{{ .Values.company.service.ports.ray }}"
+            
+            exec python company/truerun.py \
+              --mode multi_distributed \
+              --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
+              --partner_spu_addr $PARTNER_SPU_ADDR \
+              --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
+              --ray_head_addr $POD_IP:{{ .Values.company.service.ports.ray }} \
+              --run_psi True \
+              --path_to_company_train_dataset /app/company/host_train.csv \
+              --path_to_company_val_dataset /app/company/host_test.csv \
+              --path_to_company_share /app/company/company_share.csv \
+              --path_to_company_model_save_dir /app/company/models/lr_company \
+              --share_y False \
+              --path_to_partner_train_dataset /app/partner/guest_train.csv \
+              --path_to_partner_val_dataset /app/partner/guest_test.csv \
+              --path_to_partner_share /app/partner/partner_share.csv \
+              --path_to_partner_model_save_dir /app/partner/models/lr_partner \
+              --model SSLR \
+              --n_epochs 10 \
+              --batch_size 1000 \
+              --val_steps 1 \
+              --lr 0.1
         ports:
         - name: spu
           containerPort: {{ .Values.company.service.ports.spu }}

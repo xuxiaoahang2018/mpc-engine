@@ -186,11 +186,3 @@ nslookup my-mpc-company-svc
 telnet my-mpc-company-svc 9394
 ```
 
-## 许可证
-
-[您的许可证]
-
-## 支持
-
-如有问题，请联系：team@example.com
-

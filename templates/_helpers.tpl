@@ -98,7 +98,7 @@ app.kubernetes.io/component: webui
 镜像地址
 */}}
 {{- define "mobile-mpc.image" -}}
-{{- $registry := .Values.global.imageRegistry -}}
+{{- $registry := .Values.global.imageRegistry | default "" -}}
 {{- $repository := .image.repository -}}
 {{- $tag := .image.tag | default .Chart.AppVersion -}}
 {{- printf "%s%s:%s" $registry $repository $tag -}}

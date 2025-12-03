@@ -48,44 +48,42 @@ spec:
           - |
             echo "🚀 启动 Partner 节点..."
             
-            # 安装 kubectl（如果不存在）
-            if ! command -v kubectl &> /dev/null; then
-              echo "安装 kubectl..."
-              curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" 2>/dev/null
-              chmod +x kubectl
-              mv kubectl /usr/local/bin/
-            fi
-            
-            # 从 ConfigMap 读取实际的 Ray GCS 地址
-            echo "📍 从 ConfigMap 读取 Ray GCS 地址..."
-            MAX_RETRIES=30
-            for i in $(seq 1 $MAX_RETRIES); do
-              GCS_HOST=$(kubectl get configmap {{ include "mobile-mpc.fullname" . }}-ray-config -n {{ .Release.Namespace }} -o jsonpath='{.data.gcs-host}' 2>/dev/null || echo "")
-              GCS_PORT=$(kubectl get configmap {{ include "mobile-mpc.fullname" . }}-ray-config -n {{ .Release.Namespace }} -o jsonpath='{.data.gcs-port}' 2>/dev/null || echo "6379")
-              
-              if [ ! -z "$GCS_HOST" ] && [ "$GCS_PORT" != "6379" ]; then
-                echo "✅ 获取到 Ray GCS 地址: $GCS_HOST:$GCS_PORT"
-                break
-              fi
-              
-              echo "⏳ 等待 Company 更新 ConfigMap... ($i/$MAX_RETRIES)"
-              sleep 2
-            done
-            
             # 设置环境变量（Ray Worker 需要）
             export JAX_PLATFORMS=cpu
             export XLA_FLAGS="--xla_force_host_platform_device_count=1 --xla_cpu_multi_thread_eigen=false"
             export OMP_NUM_THREADS=1
             export RAY_BACKEND_LOG_LEVEL=info
             
-            # 启动 Ray Worker 节点
-            echo "🎯 启动 Ray Worker 节点（Partner）..."
-            echo "📍 Ray Head 地址: $GCS_HOST:$GCS_PORT"
+            # 使用 Company Service 地址连接 Ray Head
+            COMPANY_SERVICE="{{ include "mobile-mpc.fullname" . }}-company-svc"
+            RAY_HEAD_ADDRESS="$COMPANY_SERVICE:{{ .Values.company.service.ports.ray }}"
+            
+            echo "📍 Ray Head 地址: $RAY_HEAD_ADDRESS"
             echo "📍 资源标签: partner=10"
             echo "📍 CPU 数量: {{ .Values.partner.resources.requests.cpu | default 4 }}"
             
+            # 等待 Company 节点和 Ray Head 启动
+            echo "⏳ 等待 Company Ray Head 准备就绪..."
+            MAX_RETRIES=30
+            for i in $(seq 1 $MAX_RETRIES); do
+              if nc -z $COMPANY_SERVICE {{ .Values.company.service.ports.ray }} 2>/dev/null || \
+                 timeout 2 bash -c "echo > /dev/tcp/$COMPANY_SERVICE/{{ .Values.company.service.ports.ray }}" 2>/dev/null; then
+                echo "✅ Ray Head 已就绪"
+                break
+              fi
+              if [ $i -eq $MAX_RETRIES ]; then
+                echo "⚠️  Ray Head 连接检查超时，继续尝试连接..."
+              else
+                echo "⏳ 等待 Ray Head... ($i/$MAX_RETRIES)"
+                sleep 2
+              fi
+            done
+            
+            # 启动 Ray Worker 节点
+            echo "🎯 启动 Ray Worker 节点（Partner）..."
+            
             exec ray start \
-              --address=$GCS_HOST:$GCS_PORT \
+              --address=$RAY_HEAD_ADDRESS \
               --resources='{"partner": 10}' \
               --num-cpus={{ .Values.partner.resources.requests.cpu | default 4 }} \
               --block
