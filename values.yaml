@@ -1,6 +1,9 @@
 # 默认配置值
 global:
-
+  # 镜像仓库地址
+  imageRegistry: ""
+  imagePullPolicy: IfNotPresent
+  
   # 亲和性配置
   affinityEnabled: false
   affinity:
