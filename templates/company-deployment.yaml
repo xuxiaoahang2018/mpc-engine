@@ -43,7 +43,7 @@ spec:
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
         image: {{ .Values.coordinator.image }}
-                command: ["/bin/bash", "-c"]
+        command: ["/bin/bash", "-c"]
         args:
           - |
             echo "🚀 启动 Company 节点..."
