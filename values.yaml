@@ -47,10 +47,10 @@ company:
   # 资源限制
   resources:
     limits:
-      cpu: "6"
+      cpu: "12"
       memory: 8Gi
     requests:
-      cpu: "4"  # 增加到 8 CPU，足够运行多个 SPU Runtime Actor
+      cpu: "8"  # 增加到 8 CPU，足够运行多个 SPU Runtime Actor
       memory: 4Gi
   
   # 环境变量
@@ -106,10 +106,10 @@ partner:
   # 资源限制
   resources:
     limits:
-      cpu: "6"
+      cpu: "12"
       memory: 8Gi
     requests:
-      cpu: "4"  # 增加到 8 CPU，足够运行多个 SPU Runtime Actor
+      cpu: "8"  # 增加到 8 CPU，足够运行多个 SPU Runtime Actor
       memory: 4Gi
   
   # 环境变量
