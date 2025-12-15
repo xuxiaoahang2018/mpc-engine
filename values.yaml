@@ -148,7 +148,7 @@ coordinator:
   name: coordinator
   replicaCount: 1
   
-  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.5"
+  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.10"
   
   spuAddr: "0.0.0.0:9396"
   
@@ -170,7 +170,7 @@ webui:
   enabled: true
   replicaCount: 1
   
-  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.5"
+  image: "10.12.0.78:5000/jewel-release/mobile-mpc-project:1.0.10"
   
   service:
     type: LoadBalancer
