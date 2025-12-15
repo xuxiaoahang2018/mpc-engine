@@ -88,31 +88,17 @@ spec:
               PARTNER_SPU_ADDR="$PARTNER_IP:{{ .Values.partner.service.ports.spu }}"
             fi
             
-            # 运行 Company 程序
-            echo "🎯 启动 Company MPC 节点..."
+            # 🔥 修改：不自动执行训练，等待 Web UI 通过修改 Deployment args 来启动训练
+            echo "✅ Company 节点已就绪，等待 Web UI 启动训练任务..."
             echo "📍 Ray Head 地址: $POD_IP:{{ .Values.company.service.ports.ray }}"
+            echo "📍 Partner SPU 地址: $PARTNER_SPU_ADDR"
+            echo ""
+            echo "💡 提示：训练任务将由 Web UI 通过 Kubernetes API 动态注入"
+            echo "💡 提示：Web UI 会修改此 Deployment 的 args，添加训练命令并重启 Pod"
             
-            exec python company/truerun.py \
-              --mode multi_distributed \
-              --company_spu_addr $POD_IP:{{ .Values.company.service.ports.spu }} \
-              --partner_spu_addr $PARTNER_SPU_ADDR \
-              --coordinator_spu_addr $POD_IP:{{ .Values.company.service.ports.coordinator }} \
-              --ray_head_addr $POD_IP:{{ .Values.company.service.ports.ray }} \
-              --run_psi True \
-              --path_to_company_train_dataset /app/company/host_train.csv \
-              --path_to_company_val_dataset /app/company/host_test.csv \
-              --path_to_company_share /app/company/company_share.csv \
-              --path_to_company_model_save_dir /app/company/models/lr_company \
-              --share_y False \
-              --path_to_partner_train_dataset /app/partner/guest_train.csv \
-              --path_to_partner_val_dataset /app/partner/guest_test.csv \
-              --path_to_partner_share /app/partner/partner_share.csv \
-              --path_to_partner_model_save_dir /app/partner/models/lr_partner \
-              --model SSLR \
-              --n_epochs 10 \
-              --batch_size 1000 \
-              --val_steps 1 \
-              --lr 0.1
+            # 保持 Pod 运行（等待训练命令）
+            # Web UI 会通过修改 Deployment args 来添加训练命令
+            tail -f /dev/null
         ports:
         - name: spu
           containerPort: {{ .Values.company.service.ports.spu }}
