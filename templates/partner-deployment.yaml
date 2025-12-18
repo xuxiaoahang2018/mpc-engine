@@ -48,6 +48,11 @@ spec:
           - |
             echo "🚀 启动 Partner 节点..."
             
+            # 🔥 清理旧的 Ray 资源（防止端口冲突和连接问题）
+            echo "🧹 清理旧的 Ray Worker 资源..."
+            ray stop --force || true
+            sleep 2
+            
             # 设置环境变量（Ray Worker 需要）
             export JAX_PLATFORMS=cpu
             export XLA_FLAGS="--xla_force_host_platform_device_count=1 --xla_cpu_multi_thread_eigen=false"
@@ -79,14 +84,35 @@ spec:
               fi
             done
             
-            # 启动 Ray Worker 节点
+            # 启动 Ray Worker 节点（自动重连循环）
             echo "🎯 启动 Ray Worker 节点（Partner）..."
+            echo "💡 Ray Worker 会在连接断开时自动重启并重新连接到新的 Ray Head"
+            echo ""
             
-            exec ray start \
-              --address=$RAY_HEAD_ADDRESS \
-              --resources='{"partner": 10}' \
-              --num-cpus={{ .Values.partner.resources.requests.cpu | default 4 }} \
-              --block
+            # 🔥 循环启动 Ray Worker，实现自动重连
+            # 当 Company Ray Head 重启时，Partner Worker 会自动重新连接
+            while true; do
+                echo "⏰ $(date '+%Y-%m-%d %H:%M:%S') - 启动/重连 Ray Worker..."
+                
+                # 清理旧的 Ray 资源
+                ray stop --force 2>/dev/null || true
+                sleep 2
+                
+                # 启动 Ray Worker（阻塞模式）
+                # 当 Ray Head 断开时，raylet 会退出，ray start 也会退出
+                ray start \
+                  --address=$RAY_HEAD_ADDRESS \
+                  --resources='{"partner": 10}' \
+                  --num-cpus={{ .Values.partner.resources.requests.cpu | default 4 }} \
+                  --block
+                
+                # 如果 ray start 退出（Ray Head 断开或崩溃）
+                EXIT_CODE=$?
+                echo ""
+                echo "⚠️  Ray Worker 退出 (exit code: $EXIT_CODE)"
+                echo "🔄 5秒后自动重启并重新连接..."
+                sleep 5
+            done
         ports:
         - name: spu
           containerPort: {{ .Values.partner.service.ports.spu }}

@@ -48,6 +48,11 @@ spec:
           - |
             echo "🚀 启动 Company 节点..."
             
+            # 清理旧的 Ray 资源（如果存在）
+            echo "🧹 清理旧的 Ray 资源..."
+            ray stop --force || true
+            sleep 2
+            
             # 获取 Pod IP
             export POD_IP=$(hostname -i)
             echo "📍 Pod IP: $POD_IP"
